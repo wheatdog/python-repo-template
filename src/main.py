@@ -1,6 +1,6 @@
 import argparse
 
-from logging_config import logger
+from .utils.logging_config import logger
 
 
 def parse_args():
