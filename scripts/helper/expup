@@ -1,0 +1,116 @@
+#!/usr/bin/env python
+
+import argparse
+import os
+import socket
+import subprocess
+
+
+def get_args():
+    parser = argparse.ArgumentParser(
+        description="Experiemnt Uploader",
+        usage='%(prog)s',
+        prog='expup')
+
+    parser.add_argument('--local-base',
+                        required=True,
+                        type=str,
+                        help='directory to your local project')
+    parser.add_argument('--remote-base',
+                        required=True,
+                        type=str,
+                        help='directory to your remote collection')
+    parser.add_argument('--host',
+                        required=True,
+                        type=str,
+                        help='target host name')
+    parser.add_argument('--name',
+                        required=True,
+                        type=str,
+                        help='name of the task')
+
+    subparsers = parser.add_subparsers(dest='subcmd')
+
+    parser_up = subparsers.add_parser('up', help='only upload')
+    parser_up.add_argument('--script-file',
+                           type=str,
+                           help='name of script to be upload')
+
+    parser_exp = subparsers.add_parser('exp', help='only run experiment')
+    parser_exp.add_argument('--tmux-session',
+                            required=True,
+                            type=str,
+                            help='name of tmux session')
+    parser_exp.add_argument('--script-file',
+                            required=True,
+                            type=str,
+                            help='name of script to be executed')
+
+    parser_sync = subparsers.add_parser('sync', help='sync to other workstation')
+    parser_sync.add_argument('--from-host',
+                             action='store_true',
+                             help='sync from host')
+
+    return parser.parse_args()
+
+def sync(args):
+    if args.from_host:
+        from_loc = '{}:{}'.format(args.host, args.remote_base)
+        to_loc = '{}'.format(args.local_base)
+    else:
+        from_loc = '{}'.format(args.local_base)
+        to_loc = '{}:{}'.format(args.host, args.remote_base)
+
+    print('{} <-- {}'.format(to_loc, from_loc))
+    input('Are you sure?')
+
+    cmd = 'rsync --delete --rsync-path="mkdir -p {} && rsync" -avz {} {}'.format(args.remote_base, from_loc, to_loc)
+    print(cmd)
+    subprocess.run(cmd, shell=True, check=True)
+
+
+def up(args):
+    if args.script_file is None:
+        cmd = 'rsync --exclude ".git" --exclude "*.org" --exclude "brain/" --rsync-path="mkdir -p {} && rsync" -avz {} {}'.format(
+            os.path.join(args.remote_base, args.name),
+            args.local_base,
+            '{}:{}'.format(args.host, os.path.join(args.remote_base, args.name))
+        )
+    else:
+        cmd = 'scp {} {}'.format(
+            os.path.join(args.local_base, args.script_file),
+            '{}:{}'.format(args.host, os.path.join(args.remote_base, args.name))
+        )
+    print(cmd)
+    subprocess.run(cmd, shell=True, check=True)
+
+
+def exp(args):
+    cmd = r'''
+ssh -t {host} "bash -ilc \
+' tmux send -t {session}:0 \
+\" tmux new-window -c {workdir} -n {name} \\\" \
+bash -il {script}; \
+\\\"\" ENTER \
+'"
+'''.format(host=args.host,
+           session=args.tmux_session,
+           workdir=os.path.join(args.remote_base, args.name),
+           name = args.name,
+           script = args.script_file
+)
+    print(cmd)
+    subprocess.run(cmd, shell=True, check=True)
+
+def main(args):
+    if args.subcmd == 'sync':
+        sync(args)
+    elif args.subcmd == 'up':
+        up(args)
+    elif args.subcmd == 'exp':
+        exp(args)
+    else:
+        print('missing or wrong subcommand')
+
+if __name__ == '__main__':
+    main(get_args())
